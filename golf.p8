@@ -435,6 +435,7 @@ function _init()
   w=14,h=14,
   hp=1,
   bounce=1,
+  shake=8,
   sprite=38,sw=2,sh=2,
   idleint=15,
   shadow=8}
@@ -444,6 +445,7 @@ function _init()
   w=14,h=14,
   hp=1,
   bounce=1,
+  shake=8,
   loot="key",
   sprite=34,sw=2,sh=2,
   idleint=15,
@@ -537,7 +539,9 @@ function hit(e)
 	 end
 	 bvx+=bdx*(1-bvpct)*e.data.bounce
 	 bvy+=bdy*(1-bvpct)*e.data.bounce
-	 shake(bdx,bdy,8)
+	 if e.data.shake then
+	  shake(bdx,bdy,e.data.shake)
+	 end
 	 sfx(3)
 	 return true
 	elseif e.data.pickup then
