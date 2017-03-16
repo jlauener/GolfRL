@@ -31,33 +31,32 @@ dmg_max=10--10
 
 --dungeon generation
 function c_dungeon()
- local try_again=true
- while try_again do 
-  err=nil
-  root={x=0,y=0,w=4,h=4,dx=0,dy=0}
-  doffx=0
-  doffy=0
-  c_room(root,level+1)
-  doffx-=1
-  doffy-=1
-  shift(root)
- 
-  for x=0,64 do
-   for y=0,64 do
-    mmset(x,y,0)
-   end
-  end
-  d_ground(root)
-  d_wall()
-  elist={}
-  add_entities(root)
-  
-  debugx=root.x*16-32
-  debugy=root.y*16-32
-  if not err then
-   try_again=false
+ err=nil
+ root={x=0,y=0,w=4,h=4,dx=0,dy=0}
+ doffx=0
+ doffy=0
+ c_room(root,level+1)
+ if err then return false end
+ doffx-=1
+ doffy-=1
+ shift(root)
+ if err then return false end
+
+ for x=0,64 do
+  for y=0,64 do
+   mmset(x,y,0)
   end
  end
+ d_ground(root)
+ d_wall()
+ elist={}
+ add_door=false
+ add_entities(root)
+ if err then return false end
+ debugx=root.x*16-32
+ debugy=root.y*16-32
+ 
+ return true
 end
 
 function get_epos(r)
@@ -90,7 +89,6 @@ function add_monster(m,r,cnt)
  end
 end
 
-add_door=false
 function add_entities(r)
  if add_door then
   add_e("door",r.lx1*16+8,
@@ -107,8 +105,12 @@ function add_entities(r)
         get_lpos(r.y,r.h,r.dy)*16+16)
  else
   --fixme
-  add_monster("slime",r,2)
+  add_monster("slime",r,1)
+  if err then return end
   add_monster("slime_key",r,1)
+  if err then return end
+  add_monster("chest_hp",r,1)
+  if err then return end
   add_door=true
  end
  
@@ -196,6 +198,8 @@ function eval(r)
 end
 
 function c_room(r,cnt)
+ if err then return end
+ 
  r.next={}
  if cnt==1 then
   return r
@@ -248,6 +252,7 @@ function shift(r)
  if r.x+r.w>=31 or
     r.y+r.h>=31 then
   err="out of bounds"
+  return
  end
  for n in all(r.next) do
   shift(n)
@@ -429,27 +434,47 @@ function _init()
   monster=true,
   w=14,h=14,
   hp=1,
+  bounce=1,
   sprite=38,sw=2,sh=2,
+  idleint=15,
   shadow=8}
   
  edata["slime_key"]={
   monster=true,
   w=14,h=14,
   hp=1,
+  bounce=1,
   loot="key",
   sprite=34,sw=2,sh=2,
+  idleint=15,
   shadow=8}
+  
+ edata["chest_hp"]={
+  monster=true,
+  w=14,h=14,
+  hp=1,
+  bounce=0,
+  loot="pot_hp",
+  sprite=110,sw=2,sh=2,
+  shadow=24}
 
 	--pickup data
  edata["key"]={
   pickup=true,
   w=6,h=8,
-  key=1,gold=0,
+  key=1,gold=0,hp=0,
   sprite=49,sw=1,sh=1}
+
  edata["coin"]={
   pickup=true, 
   w=6,h=6,
-  key=0,gold=1,
+  key=0,gold=1,hp=0,
+  sprite=33,sw=1,sh=1}
+ 
+ edata["pot_hp"]={
+  pickup=true, 
+  w=6,h=6,
+  key=0,gold=0,hp=3,
   sprite=48,sw=1,sh=1}
    
  level=5
@@ -458,8 +483,7 @@ end
 
 function load_level()
  --dungeon
- c_dungeon()
- 
+ while not c_dungeon() do end
  camx=bx
  camy=by
  ccamx=camx
@@ -507,9 +531,12 @@ function hit(e)
 	   local ldata=edata[e.data.loot]
 	   key+=ldata.key
  	  gold+=ldata.gold
+ 	  php+=ldata.hp
 	   add_e(e.data.loot,e.x,e.y)
 	  end
 	 end
+	 bvx+=bdx*(1-bvpct)*e.data.bounce
+	 bvy+=bdy*(1-bvpct)*e.data.bounce
 	 shake(bdx,bdy,8)
 	 sfx(3)
 	 return true
@@ -694,12 +721,14 @@ function _update()
   if e.data.monster then
    --update monster
    if e.hp>0 then
-    e.acnt+=1
-    if e.acnt==15 then
-     e.acnt=0
-     e.frame=(e.frame+1)%2
-     e.sprite=e.data.sprite+
-              e.frame*e.data.sw
+    if e.data.idleint then
+	    e.acnt+=1
+	    if e.acnt==e.data.idleint then
+	     e.acnt=0
+	     e.frame=(e.frame+1)%2
+	     e.sprite=e.data.sprite+
+	              e.frame*e.data.sw
+	    end
     end
    else
     e.cnt+=1
@@ -713,13 +742,13 @@ function _update()
    e.cnt+=1
    if e.cnt<8 then
     e.y-=3
-   elseif e.cnt==8 then
+   elseif e.cnt==12 then
     sfx(4)
-   elseif e.cnt==10 then
-    e.sprite=13
    elseif e.cnt==14 then
+    e.sprite=13
+   elseif e.cnt==18 then
     e.sprite=14
-   elseif e.cnt==16 then
+   elseif e.cnt==20 then
  	  del(elist,e)
    end
   end
@@ -761,9 +790,13 @@ function update_moving()
  
  length=sqrt(bvx*bvx+
              bvy*bvy)
+ if length>vmax then
+  length=vmax
+  bvx=bdx*length
+  bvy=bdy*length
+ end
  bvpct=length/vmax
- bvpct=length/vmax
-   
+ 
  if length<0.05 then
   bvx=0
   bvy=0
@@ -929,6 +962,8 @@ function _draw()
   draw_player()
  end
 
+ --fixme draw pickups here!
+ 
  --draw ui
  camera()
  
@@ -1050,13 +1085,13 @@ __gfx__
 0088800009944990008eeeeeeeeee80008effeeeeeeeee80008eeeeeeeeee80008effeeeeeeeee80000000000000000000000000000000000000000000000000
 0008000000999900008eeeeeeeeee80008eeeeeeeeeeee80008eeeeeeeeee80008eeeeeeeeeeee80000000000000000000000000000000000000000000000000
 0000000000000000008eee8888eee80008eeeeeeeeeeee80008eeeeeeeeee80008eeeeeeeeeeee80000000000000000000000000000000000000000000000000
-00000000000000000028ee8ee8ee820008eeee8888eeee800028eeeeeeee820008eeeeeeeeeeee80000000000000000000000000000000000000000000000000
-00000000009aa9000028882222888200028eee8ee8eee8200028888888888200028eeeeeeeeee820000000000000000000000000000000000000000000000000
-0000000000a00a000028ee822888820002888822228888200028ee88888882000288888888888820000000000000000000000000000000000000000000000000
-00000000009aa9000028ee8228888200028ee882288888200028ee8888888200028ee88888888820000000000000000000000000000000000000000000000000
-00000000000220000028888222888200028ee882288888200028888888888200028ee88888888820000000000000000000000000000000000000000000000000
-00000000000990000028888888888200028888822288882000288888888882000288888888888820000000000000000000000000000000000000000000000000
-000000000009990000288888888e8200028888888888e82000288888888e8200028888888888e820000000000000000000000000000000000000000000000000
+00088000000000000028ee8ee8ee820008eeee8888eeee800028eeeeeeee820008eeeeeeeeeeee80000000000000000000000000000000000000000000000000
+00088000009aa9000028882222888200028eee8ee8eee8200028888888888200028eeeeeeeeee820000000000000000000000000000000000000000000000000
+0008800000a00a000028ee822888820002888822228888200028ee88888882000288888888888820000000000000000000000000000000000000000000000000
+00878800009aa9000028ee8228888200028ee882288888200028ee8888888200028ee88888888820000000000000000000000000000000000000000000000000
+08888880000220000028888222888200028ee882288888200028888888888200028ee88888888820000000000000000000000000000000000000000000000000
+08888880000990000028888888888200028888822288882000288888888882000288888888888820000000000000000000000000000000000000000000000000
+008888000009990000288888888e8200028888888888e82000288888888e8200028888888888e820000000000000000000000000000000000000000000000000
 00000000000000000002888888882000002888888888820000028888888820000028888888888200000000000000000000000000000000000000000000000000
 533333333333335b533333333333335000555550005555000055555000555500bb55555bbb5555bbbb55555bbb5555bbbbbbbbbbbbbbbbbb0000000fe8000000
 535533333333555b535533333333555005333335053333500533333505333350b5333335b533335bb5333335b533335bbbbbbbbbbbbbbbbb0000000fe8800000
