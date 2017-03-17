@@ -13,7 +13,7 @@ mdie_frame=3
 mdie_speed=3
 
 --constants
-level_max=5
+level_max=3
 angle_delta=0.015625--0.03125
 friction=0.955--0.97
 strspeed=0.025
@@ -21,21 +21,91 @@ vmin=0.5
 vmax=10
 dmg_min=0
 dmg_max=10--10
+php=10
 
--- game state
--- 0 idle
--- 1 charge
--- 2 moving
--- 3 game over
--- 4 game finished
+--game state
+--0 idle
+--1 charge
+--2 moving
+--3 game over
+--4 game finished
 
 --dungeon generation
-function c_dungeon()
+function c_r(w,h)
+ local r={x=0,y=0,dx=0,dy=0,
+          w=w,h=h,
+          next={},elist={}}
+ if not root then
+  root=r
+ end
+ r.add=function(n1,n2)
+  n1.prev=r
+  add(r.next,n1)
+  if n2 then
+   n2.prev=r
+   add(r.next,n2)
+  end
+  return r
+ end
+ r.e=function(e,cnt)
+  if not cnt then cnt=1 end
+  if e=="door" then
+   r.door=true
+  elseif e=="finish" then
+   r.finish=true
+  else
+	  add(r.elist,{name=e,cnt=cnt})
+	 end
+	 return r
+ end
+ return r
+end
+
+function m_level1()
+ c_r(3,3).add(
+  c_r(5,3).e("slime",2).add(
+   c_r(4,3).e("chest_hp").e("finish")
+  )
+ )
+end
+
+function m_level2()
+ c_r(4,4).add(
+  c_r(8,3).e("slime",3).add(
+   c_r(3,3).add(
+    c_r(5,4).e("slime_key").e("chest_hp"),
+    c_r(3,3).e("door").e("finish")
+   )
+  )
+ )
+end
+
+function m_level3()
+ c_r(3,3).add(
+  c_r(6,3).e("slime_key").e("slime",2).add(
+   c_r(3,3).e("door").e("chest_hp").add(
+    c_r(10,5).e("slime_key").e("slime",6).add(
+     c_r(3,3).e("door").e("finish")
+    )
+   )
+  )
+ )
+end
+
+function d_create()
  err=nil
- root={x=0,y=0,w=4,h=4,dx=0,dy=0}
+ root=nil
+ if level==1 then
+  m_level1()
+ elseif level==2 then
+  m_level2()
+ elseif level==3 then
+  m_level3()
+ end
+ 
  doffx=0
  doffy=0
- c_room(root,level+1)
+ d_croom(root)
  if err then return false end
  doffx-=1
  doffy-=1
@@ -81,7 +151,7 @@ function get_epos(r)
  err="no free pos"
 end
 
-function add_monster(m,r,cnt)
+function add_rnd(m,r,cnt)
  for i=1,cnt do
   local x,y=get_epos(r)
   if err then return end
@@ -90,28 +160,23 @@ function add_monster(m,r,cnt)
 end
 
 function add_entities(r)
- if add_door then
+ if r.door then
   add_e("door",r.lx1*16+8,
                r.ly1*16+16)
-  add_door=false
  end
  
  if not r.prev then
-  bx=(r.x+r.w/2)*16
-  by=(r.y+r.h/2)*16
- elseif #r.next==0 then
+  bx=get_lpos(r.x,r.w,-r.dx)*16+3
+  by=get_lpos(r.y,r.h,-r.dy)*16+3
+ elseif r.finish then
   add_e("finish",
-        get_lpos(r.x,r.w,r.dx)*16+8,
-        get_lpos(r.y,r.h,r.dy)*16+16)
- else
-  --fixme
-  add_monster("slime",r,1)
+        get_lpos(r.x,r.w,r.dx)*16+4,
+        get_lpos(r.y,r.h,r.dy)*16+8)
+ end
+ 
+ for e in all(r.elist) do
+  add_rnd(e.name,r,e.cnt)
   if err then return end
-  add_monster("slime_key",r,1)
-  if err then return end
-  add_monster("chest_hp",r,1)
-  if err then return end
-  add_door=true
  end
  
  for n in all(r.next) do
@@ -124,10 +189,17 @@ function is_free(r,x,y,w,h)
             x+w<r.x-3 or
             y>r.y+r.h+3 or
             y+h<r.y-3
- if free and r.prev then
-  return is_free(r.prev,x,y,w,h)
+ if not free then
+  return false
  end
- return free
+
+ for n in all(r.next) do
+  if not is_free(n,x,y,w,h) then
+   return false
+  end
+ end
+  
+ return true
 end
 
 function get_rpos(p,l)
@@ -140,7 +212,7 @@ function get_lpos(p,l,d)
  elseif d==1 then
   return p+l-1
  else
-  return p+flr(l/2)
+  return p+l/2
  end
 end
 
@@ -156,33 +228,33 @@ function chk_link(r,links,
   lx1=r.x+r.w+1
   lx2=r.x+r.w+l
   x+=r.w+l+1 
-  ly1=get_lpos(r.y,r.h,r.dy)
+  ly1=flr(get_lpos(r.y,r.h,r.dy))
   ly2=ly1  
   y=get_rpos(ly1,h)
  elseif dx==-1 then  
   lx1=r.x-1
   lx2=r.x-l
   x-=w+l+1
-  ly1=get_lpos(r.y,r.h,r.dy)
+  ly1=flr(get_lpos(r.y,r.h,r.dy))
   ly2=ly1
   y=get_rpos(ly1,h)
  elseif dy==1 then		
   ly1=r.y+r.h+1
   ly2=r.y+r.h+l
   y+=r.h+l+1  
-  lx1=get_lpos(r.x,r.w,r.dx)
+  lx1=flr(get_lpos(r.x,r.w,r.dx))
   lx2=lx1  
   x=get_rpos(lx1,w)
  elseif dy==-1 then
   ly1=r.y-1
   ly2=r.y-l
   y-=h+l+1
-  lx1=get_lpos(r.x,r.w,r.dx)
+  lx1=flr(get_lpos(r.x,r.w,r.dx))
   lx2=lx1
   x=get_rpos(lx1,w)
  end
 
- if is_free(r,x,y,w,h) then
+ if is_free(root,x,y,w,h) then
   add(links,{x=x,y=y,
              dx=dx,dy=dy,
              w=w,h=h,
@@ -197,46 +269,47 @@ function eval(r)
  return x*x+y*y
 end
 
-function c_room(r,cnt)
- if err then return end
- 
- r.next={}
- if cnt==1 then
-  return r
- end
+function d_croom(r)
+ for n in all(r.next) do
+  if err then return end 
   
- local w=3+flr(rnd(6))
- local h=3+flr(rnd(2))
- local l=3+flr(rnd(2))
- local links={}
- chk_link(r,links,-1,0,w,h,l)
- chk_link(r,links,1,0,w,h,l)
- chk_link(r,links,0,-1,h,w,l)
- chk_link(r,links,0,1,h,w,l)
- if #links>0 then
-  local n=links[1+flr(rnd(#links))]
-  if rnd(1)<0.5 then
-   for l in all(links) do
-    if eval(l)<eval(n) then
-     n=l
-    end
-   end
-  end
-  n.prev=r
-  add(r.next,
-      c_room(n,cnt-1))
-  if n.x<doffx then
-   doffx=n.x
-  end
-  if n.y<doffy then
-   doffy=n.y
-  end
-  
- else
-  err="no free links cnt="..cnt
+	 local l=3+flr(rnd(2))
+	 local links={}
+	 chk_link(r,links,-1,0,n.w,n.h,l)
+	 chk_link(r,links,1,0,n.w,n.h,l)
+	 chk_link(r,links,0,-1,n.h,n.w,l)
+	 chk_link(r,links,0,1,n.h,n.w,l)
+	 if #links>0 then
+	  local best=links[1+flr(rnd(#links))]
+	  if rnd(1)<0.5 then
+	   for l in all(links) do
+	    if eval(l)<eval(best) then
+	     best=l
+	    end
+	   end
+	  end
+	  n.x=best.x
+	  n.y=best.y
+	  n.dx=best.dx
+	  n.dy=best.dy
+	  n.w=best.w
+	  n.h=best.h
+	  n.lx1=best.lx1
+	  n.ly1=best.ly1
+	  n.lx2=best.lx2
+	  n.ly2=best.ly2
+	  d_croom(n)
+		 if n.x<doffx then
+	   doffx=n.x
+	  end
+	  if n.y<doffy then
+	   doffy=n.y
+	  end
+	  
+	 else
+	  err="no free links cnt="..cnt
+	 end
  end
-
- return r
 end
 
 function shift(r)
@@ -479,13 +552,13 @@ function _init()
   key=0,gold=0,hp=3,
   sprite=48,sw=1,sh=1}
    
- level=5
+ level=1
  load_level()
 end
 
 function load_level()
  --dungeon
- while not c_dungeon() do end
+ while not d_create() do end
  camx=bx
  camy=by
  ccamx=camx
@@ -499,10 +572,8 @@ function load_level()
 	bdx=0
 	bdy=0
 	bvpct=0
-	critical=false
 	
 	-- player
-	php=10
 	px=bx
 	py=by
 	angle=0
@@ -658,12 +729,12 @@ function moveby()
 end
 
 function dec_php()
- --tmp!!
- --php-=1
- if php==0 then
-  say("game over")
-  state=3 --game over
- end
+ php-=1
+ --fixme
+ --if php==0 then
+ -- say("game over")
+ -- state=3 --game over
+ --end
 end
 
 function _update()
@@ -868,11 +939,6 @@ function update_charge()
   bdy=diry
   bvx=bdx*vel
   bvy=bdy*vel
-  critical=false
-  if str>0.8 then
-   critical=true
-   --say('critical!')
-  end
   shake(dirx,diry,str*6)
   dec_php()
   str=0
