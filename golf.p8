@@ -480,7 +480,7 @@ function add_e(name,x,y)
 									 cnt=0,
 									 frame=0,
 									 acnt=0,
-									 sprite=data.sprite,
+									 sprite=data.spr_idle,
 									 shadow=data.shadow}
 	add(elist,e)
 	return e
@@ -493,44 +493,47 @@ function _init()
  edata["finish"]={
   finish=true,
   w=8,h=8,
-  sprite=78,sw=2,sh=2}
+  spr_idle=78,sw=2,sh=2}
   
  --door data
  edata["door"]={
   door=true,
   w=16,h=16,
-  sprite=108,sw=2,sh=2,
+  spr_idle=108,sw=2,sh=2,
   shadow=26}
    
  --monster data
  edata["slime"]={
   monster=true,
-  w=14,h=14,
+  w=12,h=14,
   hp=1,
-  bounce=1,
+  bounce=0.8,
   shake=8,
-  sprite=38,sw=2,sh=2,
+  spr_idle=38,sw=2,sh=2,
+  spr_die=128,
   idleint=15,
   shadow=8}
   
  edata["slime_key"]={
   monster=true,
-  w=14,h=14,
+  w=12,h=14,
   hp=1,
-  bounce=1,
+  bounce=0.8,
   shake=8,
   loot="key",
-  sprite=34,sw=2,sh=2,
+  spr_idle=34,sw=2,sh=2,
+  spr_die=128,
   idleint=15,
   shadow=8}
   
  edata["chest_hp"]={
   monster=true,
-  w=14,h=14,
+  w=12,h=14,
   hp=1,
   bounce=0,
   loot="pot_hp",
-  sprite=110,sw=2,sh=2,
+  spr_idle=110,sw=2,sh=2,
+  spr_die=164,
   shadow=24}
 
 	--pickup data
@@ -538,19 +541,19 @@ function _init()
   pickup=true,
   w=6,h=8,
   key=1,gold=0,hp=0,
-  sprite=49,sw=1,sh=1}
+  spr_idle=49,sw=1,sh=1}
 
  edata["coin"]={
   pickup=true, 
-  w=6,h=6,
+  w=6,h=8,
   key=0,gold=1,hp=0,
-  sprite=33,sw=1,sh=1}
+  spr_idle=33,sw=1,sh=1}
  
  edata["pot_hp"]={
   pickup=true, 
-  w=6,h=6,
+  w=6,h=8,
   key=0,gold=0,hp=3,
-  sprite=48,sw=1,sh=1}
+  spr_idle=48,sw=1,sh=1}
    
  level=1
  load_level()
@@ -608,8 +611,10 @@ function hit(e)
 	   add_e(e.data.loot,e.x,e.y)
 	  end
 	 end
-	 bvx+=bdx*(1-bvpct)*e.data.bounce
-	 bvy+=bdy*(1-bvpct)*e.data.bounce
+	 --bvx+=bdx*(1-bvpct)*e.data.bounce
+	 --bvy+=bdy*(1-bvpct)*e.data.bounce
+	 bvx+=bdx*e.data.bounce
+	 bvy+=bdy*e.data.bounce
 	 if e.data.shake then
 	  shake(bdx,bdy,e.data.shake)
 	 end
@@ -668,7 +673,7 @@ function collide(x,y,w,h)
    if fget(mmget(ix,iy),1) then
     --solid
     if crect(x,y,w,h,
-             ix*8,iy*8,8,8) then
+             ix*8+1,iy*8+1,6,6) then
      shake(bdx,bdy,bvpct*10)
      sfx(0)
      return true
@@ -801,13 +806,13 @@ function _update()
 	    if e.acnt==e.data.idleint then
 	     e.acnt=0
 	     e.frame=(e.frame+1)%2
-	     e.sprite=e.data.sprite+
+	     e.sprite=e.data.spr_idle+
 	              e.frame*e.data.sw
 	    end
     end
    else
     e.cnt+=1
-    e.sprite=128+flr(e.cnt/mdie_speed)*2
+    e.sprite=e.data.spr_die+flr(e.cnt/mdie_speed)*2
     if e.cnt==mdie_frame*mdie_speed then
      del(elist,e)
     end
