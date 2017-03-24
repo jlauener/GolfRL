@@ -174,6 +174,8 @@ function scene_game:init()
 	bdx=0
 	bdy=0
 	bvpct=0
+	bhitcnt=0
+	bsprite=0
 	
 	-- player
 	px=bx
@@ -211,8 +213,10 @@ function scene_game:update()
   self:upd_idle()
  elseif self.state==1 then
   self:upd_charge()
- else --self.state==2
+ elseif self.state==2 then
   self:upd_moving()
+ else --self.state==3
+  self:upd_finished()
  end
  
  --update player
@@ -394,6 +398,42 @@ function scene_game:upd_charge()
  end
 end
 
+function scene_game:upd_finished()
+ if bvx!=0 then
+  bx+=bvx
+  if (bvx>0 and bx>bfx) or
+     (bvx<0 and bx<bfx) then
+   bx=bfx
+   bvx=0
+  end
+ end
+ 
+ if bvy!=0 then
+  by+=bvy
+  if (bvy>0 and by>bfy) or
+     (bvy<0 and by<bfy) then
+   by=bfy
+   bvy=0
+  end
+ end
+ 
+ bfcnt-=1
+ if bfcnt<10 then
+  bsprite=2
+ elseif bfcnt<20 then
+  bsprite=1
+ end
+ 
+ if bfcnt==0 then
+	 if level==level_max then
+	  show(scene_finished)
+	 else
+	  level+=1
+	  show(scene_game)
+	 end
+	end
+end
+
 function scene_game:draw()
  --screen shake!
  if shakesx>0 then
@@ -453,6 +493,10 @@ function scene_game:draw()
   draw_player()
  end
 
+ if bhitcnt>0 then
+  circ(bhitx,bhity,3+2-bhitcnt)
+  bhitcnt-=1
+ end
  --fixme draw pickups here!
  
  --draw ui
@@ -495,6 +539,52 @@ function scene_game:draw()
  end
 end
 
+function scene_game:hit(e)
+ if e.data.monster then
+  if e.hp==0 then
+   return false
+  end
+  
+  e.hp-=1
+  if e.hp==0 then
+   e.shadow=nil
+   if e.data.loot then	
+	   local ldata=edata[e.data.loot]
+	   key+=ldata.key
+ 	  gold+=ldata.gold
+ 	  php+=ldata.hp
+	   add_e(e.data.loot,e.x,e.y)
+	  end
+	 end
+	 bvx+=bdx*e.data.bounce
+	 bvy+=bdy*e.data.bounce
+	 if e.data.shake then
+	  shake(bdx,bdy,e.data.shake)
+	 end
+	 sfx(3)
+	 return true
+	elseif e.data.pickup then
+		return false
+	elseif e.data.finish then
+	 bfx=e.x-3
+	 bfy=e.y-7
+	 bfcnt=30
+	 self.state=3
+	 return false
+	elseif e.data.door then
+	 if key>0 then
+	  key-=1
+	  del(elist,e)
+	  sfx(2)
+	  return false
+	 end
+	 
+	 shake(bdx,bdy,bvpct*10)
+	 sfx(0)
+	 return true
+ end
+end
+
 function add_e(name,x,y)
  local data=edata[name]
  local e={data=data,
@@ -517,57 +607,14 @@ function draw_player()
 end
  
 function draw_ball()
- spr(10,bx-5,by+4,2,1)
- spr(1,bx,by-flr(bvpct*3))
-end
-
-function hit(e)
- if e.data.monster then
-  if e.hp==0 then
-   return false
-  end
-  
-  e.hp-=1
-  if e.hp==0 then
-   e.shadow=nil
-   if e.data.loot then	
-	   local ldata=edata[e.data.loot]
-	   key+=ldata.key
- 	  gold+=ldata.gold
- 	  php+=ldata.hp
-	   add_e(e.data.loot,e.x,e.y)
-	  end
-	 end
-	 --bvx+=bdx*(1-bvpct)*e.data.bounce
-	 --bvy+=bdy*(1-bvpct)*e.data.bounce
-	 bvx+=bdx*e.data.bounce
-	 bvy+=bdy*e.data.bounce
-	 if e.data.shake then
-	  shake(bdx,bdy,e.data.shake)
-	 end
-	 sfx(3)
-	 return true
-	elseif e.data.pickup then
-		return false
-	elseif e.data.finish then
-	 if level==level_max then
-	  show(scene_finished)
-	 else
-	  level+=1
-	  show(scene_game)
-	 end
-	 return true
-	elseif e.data.door then
-	 if key>0 then
-	  key-=1
-	  del(elist,e)
-	  sfx(2)
-	  return false
-	 end
-	 
-	 shake(bdx,bdy,bvpct*10)
-	 sfx(0)
-	 return true
+ local y=by-flr(bvpct*3)
+ if bsprite==0 then
+  spr(10,bx-5,by+4,2,1)
+  spr(1,bx,y)
+ elseif bsprite==1 then
+  spr(16,bx,y)
+ elseif bsprite==2 then
+  spr(17,bx,y)
  end
 end
 
@@ -584,7 +631,7 @@ function collide(x,y,w,h)
   if crect(x,y,w,h,
            e.x-e.data.w/2,e.y-e.data.h,
            e.data.w,e.data.h) then
- 		if hit(e) then
+ 		if scene_game:hit(e) then
  		 return true
  		end
   end
@@ -599,6 +646,11 @@ function collide(x,y,w,h)
     if crect(x,y,w,h,
              ix*8+1,iy*8+1,6,6) then
      shake(bdx,bdy,bvpct*10)
+     if bvpct>0.05 then
+      bhitcnt=2
+      bhitx=bx+2
+      bhity=by+2
+     end
      sfx(0)
      return true
     end
@@ -821,8 +873,8 @@ function d_create()
  elseif level==3 then
   m_level3()
  end
- --root=nil
- --m_level_debug()
+ root=nil
+ m_level_debug()
  
  doffx=0
  doffy=0
@@ -1222,10 +1274,10 @@ __gfx__
 00000000000000000014115115112100006411511111110000112415511112650000000000000000000000000000000000000000000060000000000000000000
 00000000000000000011155ee551110005611555ee511100001111555ee115550000000000000000000000000000000000000000000000000000000000000000
 00000000000000000012155555512100011611555551210000121115551155100333333333333330333333333333333300000000000000000000000000000000
-00000000000000000012215555122100151555115512210001222111115551513333333333333333333333333333333300000000000000000000000000000000
-00000000000000000014211551124100511155551112410002241111555511150333333333333330333333333333333300000000000000000000000000000000
-00000000000000000014415111144100111111111514410001441151111111110000000000000000000000000000000000000000000000000000000000000000
-00000000000000000014416111144100111111155114410001441115511111110000000000000000000000000000000000000000000000000000000000000000
+00ff0000000000000012215555122100151555115512210001222111115551513333333333333333333333333333333300000000000000000000000000000000
+0feff00000ff00000014211551124100511155551112410002241111555511150333333333333330333333333333333300000000000000000000000000000000
+0fffe00000fe00000014415111144100111111111514410001441151111111110000000000000000000000000000000000000000000000000000000000000000
+00fe0000000000000014416111144100111111155114410001441115511111110000000000000000000000000000000000000000000000000000000000000000
 00000000000000000011215111121100011115511512110001121151155111100000000000000000000000000000000000000000000000000000000000000000
 00000000000000000014416611144100001115511554410000144551155111000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000006600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
