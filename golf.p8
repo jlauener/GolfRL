@@ -6,7 +6,7 @@ debug=false
 
 --player teleport anim
 pteleport_frame=4
-pteleport_speed=2
+pteleport_speed=1
 
 --monster die anim
 mdie_frame=3
