@@ -14,23 +14,738 @@ mdie_speed=4
 
 --constants
 level_max=3
-angle_delta=0.015625--0.03125
-friction=0.955--0.97
+player_hp=10
+angle_delta=0.015625
+friction=0.955
 strspeed=0.025
 vmin=0.5
 vmax=10
-dmg_min=0
-dmg_max=10--10
-php=10
+screen_div=1
 
---game state
---0 idle
---1 charge
---2 moving
---3 game over
---4 game finished
+--------------------------------
+--data
+--------------------------------
 
+function init_data()
+ edata={}
+
+ --finish data
+ edata["finish"]={
+  finish=true,
+  w=8,h=8,
+  spr_idle=78,sw=2,sh=2}
+  
+ --door data
+ edata["door"]={
+  door=true,
+  w=16,h=16,
+  spr_idle=108,sw=2,sh=2,
+  shadow=26}
+   
+ --monster data
+ edata["slime"]={
+  monster=true,
+  w=12,h=14,
+  hp=1,
+  bounce=0.8,
+  shake=8,
+  spr_idle=38,sw=2,sh=2,
+  spr_die=128,
+  idleint=15,
+  shadow=8}
+  
+ edata["slime_key"]={
+  monster=true,
+  w=12,h=14,
+  hp=1,
+  bounce=0.8,
+  shake=8,
+  loot="key",
+  spr_idle=34,sw=2,sh=2,
+  spr_die=128,
+  idleint=15,
+  shadow=8}
+  
+ edata["chest_hp"]={
+  monster=true,
+  w=12,h=14,
+  hp=1,
+  bounce=0,
+  loot="pot_hp",
+  spr_idle=110,sw=2,sh=2,
+  spr_die=164,
+  shadow=24}
+
+	--pickup data
+ edata["key"]={
+  pickup=true,
+  w=6,h=8,
+  key=1,gold=0,hp=0,
+  spr_idle=49,sw=1,sh=1}
+
+ edata["coin"]={
+  pickup=true, 
+  w=6,h=8,
+  key=0,gold=1,hp=0,
+  spr_idle=33,sw=1,sh=1}
+ 
+ edata["pot_hp"]={
+  pickup=true, 
+  w=6,h=8,
+  key=0,gold=0,hp=3,
+  spr_idle=48,sw=1,sh=1}
+end
+
+--------------------------------
+--scene management
+--------------------------------
+
+function show(s)
+ if scene then
+  tr_state=2
+  tr_cnt=0
+  nxt_scene=s
+ else
+  tr_state=0
+  tr_cnt=0
+  s:init()
+  scene=s
+ end
+end
+
+function update_scene()
+ if tr_state==2 then
+  tr_cnt+=1
+  if tr_cnt==20 then
+   tr_state=1
+   scene=nxt_scene
+   scene:init()
+   nxt_scene=nil
+  end
+  screen_div=flr(tr_cnt/5)+1
+ elseif tr_state==1 then
+  tr_cnt-=1
+  if tr_cnt==0 then
+   tr_state=0
+  end
+  screen_div=flr(tr_cnt/5)+1
+ else
+  scene:update()
+ end
+end
+
+function draw_scene()
+ scene:draw()
+ 
+ if screen_div>1 then
+	 for ix=0,127 do
+	  local x=flr(ix/screen_div)*screen_div
+	  for iy=0,127 do
+	   local y=flr(iy/screen_div)*screen_div
+	   pset(ix,iy,pget(x,y))
+	  end
+	 end
+ end
+ 
+ --cursor(0,0)
+ --color(7)
+ --print("tr_cnt="..tr_cnt)
+ --print("tr_state="..tr_state)
+end
+
+--------------------------------
+--scene game
+--------------------------------
+
+scene_game={}
+function scene_game:init()
+ --dungeon
+ while not d_create() do end
+ camx=bx
+ camy=by
+ ccamx=camx
+ ccamy=camy
+ 
+ --ball
+	boffx=0
+	boffy=0
+	bvx=0
+	bvy=0
+	bdx=0
+	bdy=0
+	bvpct=0
+	
+	-- player
+	px=bx
+	py=by
+	angle=0
+	str=0
+	dirx=0
+	diry=1
+	key=0
+	gold=0
+	psprite=2
+	pframe=0
+	pacnt=0
+	pteleport=0
+	
+	self.state=0
+end
+
+function scene_game:update()
+ if btnp(5) then
+  debug=not debug
+ end
+ 
+ if debug then
+  if btn(0) then debugx-=8
+  elseif btn(1) then debugx+=8
+  end
+  if btn(2) then debugy-=8
+  elseif btn(3) then debugy+=8
+  end
+  return
+ end
+ 
+ if self.state==0 then
+  self:upd_idle()
+ elseif self.state==1 then
+  self:upd_charge()
+ else --self.state==2
+  self:upd_moving()
+ end
+ 
+ --update player
+ if pteleport>0 then  
+  pteleport-=1
+  pframe=flr(pteleport/pteleport_speed)
+  if pframe<pteleport_frame then
+   px=bx
+   py=by
+  else
+   pframe=(pteleport_frame-1)-(pframe-pteleport_frame)
+  end 
+  psprite=134+pframe*2
+ else
+  psprite=2+pframe*2
+ end
+ 
+ --update entities
+ for e in all(elist) do
+  if e.data.monster then
+   --update monster
+   if e.hp>0 then
+    if e.data.idleint then
+	    e.acnt+=1
+	    if e.acnt==e.data.idleint then
+	     e.acnt=0
+	     e.frame=(e.frame+1)%2
+	     e.sprite=e.data.spr_idle+
+	              e.frame*e.data.sw
+	    end
+    end
+   else
+    e.cnt+=1
+    e.sprite=e.data.spr_die+flr(e.cnt/mdie_speed)*2
+    if e.cnt==mdie_frame*mdie_speed then
+     del(elist,e)
+    end
+   end
+  elseif e.data.pickup then
+   --update pickup
+   e.cnt+=1
+   if e.cnt<8 then
+    e.y-=3
+   elseif e.cnt==12 then
+    sfx(4)
+   elseif e.cnt==14 then
+    e.sprite=13
+   elseif e.cnt==18 then
+    e.sprite=14
+   elseif e.cnt==20 then
+ 	  del(elist,e)
+   end
+  end
+ end 
+ 
+ --update camera
+ if ccamx<camx-16 then
+  ccamx=camx-16
+ elseif camx<camx then
+  ccamx+=1
+ elseif ccamx>camx+16 then
+  ccamx=camx+16
+ elseif ccamx>camx then
+  ccamx-=1
+ end
+ 
+ if ccamy<camy-16 then
+  ccamy=camy-16
+ elseif ccamy<camy then
+  ccamy+=1
+ elseif ccamy>camy+16 then
+  ccamy=camy+16
+ elseif ccamy>camy then
+  ccamy-=1
+ end
+end
+
+function scene_game:upd_moving()
+ movebx()
+ moveby()
+ bvx*=friction
+ bvy*=friction
+ 
+ length=sqrt(bvx*bvx+
+             bvy*bvy)
+ if length>vmax then
+  length=vmax
+  bvx=bdx*length
+  bvy=bdy*length
+ end
+ bvpct=length/vmax
+ 
+ if length<0.05 then
+  if php==0 then
+   show(scene_over)
+   return
+  end
+  bvx=0
+  bvy=0
+  boffx=0
+  boffy=0
+		self.state=0 --idle
+		pteleport=pteleport_frame*2*pteleport_speed
+		sfx(5)
+ end
+ 
+ if pacnt>0 then
+  pacnt-=1
+  if pacnt==0 then
+   pframe=0
+  end
+ end
+ 
+ camx=flr(bx)
+ camy=flr(by)
+end
+
+function scene_game:upd_rotation()
+ if btn(0) then --left
+  angle-=angle_delta
+  if angle<0 then angle+=1 end
+ elseif btn(1) then --right
+  angle+=angle_delta
+  if angle>1 then angle-=1 end
+ end
+ 
+ dirx=sin(angle)
+ diry=cos(angle)
+ local tx=flr(bx+dirx*44)
+ local ty=flr(by+diry*44)
+ if camx<tx then
+  camx+=1
+ elseif camx>tx then
+  camx-=1
+ end
+ 
+ if camy<ty then
+  camy+=1
+ elseif camy>ty then
+  camy-=1
+ end
+end
+
+function scene_game:upd_idle()
+ self:upd_rotation() 
+ 
+ if btnp(4) then -- fire (x)
+  strsign=1
+  self.state=1 -- charge
+  pframe=1
+ end
+end
+  
+function scene_game:upd_charge()
+ self:upd_rotation()
+ 
+ if not btn(4) then
+  self.state=2 -- moving
+  vel=vmin+str*(vmax-vmin)
+  bdx=dirx
+  bdy=diry
+  bvx=bdx*vel
+  bvy=bdy*vel
+  shake(dirx,diry,str*6)
+  php-=1
+  str=0
+  pframe=2
+  pacnt=16
+  sfx(1)
+ else
+  str+=strsign*strspeed
+  if str>1.0 then
+   str=1
+   strsign=-1
+  elseif str<0.0 then
+   str=0
+   strsign=1
+  end
+ end
+end
+
+function scene_game:draw()
+ --screen shake!
+ if shakesx>0 then
+  shakesx-=1
+  if shakesx<0 then shakesx=0 end
+ end
+ shakex=-shakesx+rnd(2)*shakesx
+ 
+ if shakesy>0 then
+  shakesy-=1
+  if shakesy<0 then shakesy=0 end
+ end
+ shakey=-shakesy+rnd(2)*shakesy
+  
+ if debug then
+  camera(debugx,debugy)  
+ else 
+  camera(ccamx-64+shakex,
+         ccamy-64+shakey)
+ end
+ map(0,0,0,0,64,32)
+ map(64,0,0,256,64,32)
+ 
+ --draw cursor
+ if self.state<=1 then
+  local x=bx+2
+  local y=by+2
+  local length=16+str*24
+  for i=0,4 do
+   circfill(x,y,2,15)
+   x+=dirx*(length/2.5)
+   y+=diry*(length/2.5)
+  end
+ end
+     
+ --draw entities
+ for e in all(elist) do
+  if e.shadow then
+   spr(e.shadow,e.x-8,e.y-2,2,1)
+  end
+  spr(e.sprite,
+      e.x-e.data.sw*4,
+      e.y-e.data.sh*8,
+      e.data.sw,e.data.sh)
+  if debug then
+   local x=e.x-e.data.w/2
+   local y=e.y-e.data.h
+   rect(x,y,x+e.data.w,y+e.data.h,7)
+  end
+ end
+ 
+ if by>py-4 then
+  draw_player()
+  draw_ball()
+ else
+  draw_ball()
+  draw_player()
+ end
+
+ --fixme draw pickups here!
+ 
+ --draw ui
+ camera()
+
+ if tr_cnt>0 then
+  return
+ end
+  
+ --rect(0,0,127,127,7)
+	rectfill(0,0,127,9,0)
+	rect(0,0,127,9,7)
+	
+ color(7)
+ spr(32,3,1)
+ print(php,11,2)
+ spr(33,20,1)
+ print(gold,28,2)
+ spr(49,36,1)
+ print(key,44,2)
+ 
+ print("floor "..level,98,2)
+ 
+ --draw debug
+ if debug then
+  cursor(0,0)
+  color(14)
+  print("state="..self.state)
+  print("angle="..angle) 
+  print("str="..str)
+  print("dx="..dirx.." dy="..diry)
+  if dbg then
+   print("dbg="..dbg)
+  end
+  if err then 
+   print("err="..err)
+  end  
+  debug_dgen()
+  --circfill(64+debugx+8,debugy+8,2,7)
+ end
+end
+
+function add_e(name,x,y)
+ local data=edata[name]
+ local e={data=data,
+									 x=x,
+									 y=y,
+									 hp=data.hp,
+									 cnt=0,
+									 frame=0,
+									 acnt=0,
+									 sprite=data.spr_idle,
+									 shadow=data.shadow}
+	add(elist,e)
+	return e
+end
+
+function draw_player()
+ spr(8,px-5,py,2,1)
+ spr(psprite,px-5,py-13,
+     2,2,dirx<0,false)
+end
+ 
+function draw_ball()
+ spr(10,bx-5,by+4,2,1)
+ spr(1,bx,by-flr(bvpct*3))
+end
+
+function hit(e)
+ if e.data.monster then
+  if e.hp==0 then
+   return false
+  end
+  
+  e.hp-=1
+  if e.hp==0 then
+   e.shadow=nil
+   if e.data.loot then	
+	   local ldata=edata[e.data.loot]
+	   key+=ldata.key
+ 	  gold+=ldata.gold
+ 	  php+=ldata.hp
+	   add_e(e.data.loot,e.x,e.y)
+	  end
+	 end
+	 --bvx+=bdx*(1-bvpct)*e.data.bounce
+	 --bvy+=bdy*(1-bvpct)*e.data.bounce
+	 bvx+=bdx*e.data.bounce
+	 bvy+=bdy*e.data.bounce
+	 if e.data.shake then
+	  shake(bdx,bdy,e.data.shake)
+	 end
+	 sfx(3)
+	 return true
+	elseif e.data.pickup then
+		return false
+	elseif e.data.finish then
+	 if level==level_max then
+	  show(scene_finished)
+	 else
+	  level+=1
+	  show(scene_game)
+	 end
+	 return true
+	elseif e.data.door then
+	 if key>0 then
+	  key-=1
+	  del(elist,e)
+	  sfx(2)
+	  return false
+	 end
+	 
+	 shake(bdx,bdy,bvpct*10)
+	 sfx(0)
+	 return true
+ end
+end
+
+function crect(x1,y1,w1,h1,
+								       x2,y2,w2,h2)
+ return not (x1>=x2+w2 or
+             x1+w1<=x2 or
+             y1>=y2+h2 or
+             y1+h1<=y2)
+end
+
+function collide(x,y,w,h)
+ for e in all(elist) do
+  if crect(x,y,w,h,
+           e.x-e.data.w/2,e.y-e.data.h,
+           e.data.w,e.data.h) then
+ 		if hit(e) then
+ 		 return true
+ 		end
+  end
+ end
+ 
+	for ix=flr(x/8),
+	       flr((x+w)/8) do
+	 for iy=flr(y/8),
+	        flr((y+h)/8) do
+   if fget(mmget(ix,iy),1) then
+    --solid
+    if crect(x,y,w,h,
+             ix*8+1,iy*8+1,6,6) then
+     shake(bdx,bdy,bvpct*10)
+     sfx(0)
+     return true
+    end
+   end
+  end
+ end
+ 
+ return false
+end
+
+function movebx()
+ boffx+=bvx
+ offsetx=flr(boffx)
+ if offsetx<0 then
+  offsetx+=1
+ end
+ boffx-=offsetx
+ 
+	if offsetx!=0 then
+	 sign=1
+	 if offsetx<0 then sign=-1 end
+  for i=0,offsetx*sign-1 do
+   if collide(bx+sign+1,by+1,4,4) then
+    boffx=-boffx
+    bvx=-bvx
+    bdx=-bdx
+    return
+			end
+   bx+=sign
+  end
+ end
+end
+
+function moveby()
+ boffy+=bvy
+ offsety=flr(boffy)
+ if offsety<0 then
+  offsety+=1
+ end
+ boffy-=offsety
+ 
+	if offsety!=0 then
+	 sign=1
+	 if offsety<0 then
+	  sign=-1
+	 end
+  for i=0,offsety*sign-1 do
+   if collide(bx+1,by+sign+1,4,4) then
+    boffy=-boffy
+    bvy=-bvy
+    bdy=-bdy
+    return
+   end
+   by+=sign
+  end
+ end
+end
+
+--------------------------------
+--screen shake
+--------------------------------
+
+shakesx=0
+shakesy=0
+shakex=0
+shakey=0
+function shake(dx,dy,str)
+ shakesx=abs(dx*str)
+ shakesy=abs(dy*str)
+end
+
+--------------------------------
+--scene title
+--------------------------------
+
+scene_title={}
+function scene_title:init()
+end
+
+function scene_title:update()
+ if btnp(4) then
+  level=1
+  php=player_hp
+  show(scene_game)
+ end
+end
+
+function scene_title:draw()
+ print("golf rl",50,62,7)
+end
+
+--------------------------------
+--scene finish
+--------------------------------
+
+scene_finished={}
+function scene_finished:init()
+end
+
+function scene_finished:update()
+ if btnp(4) then
+  show(scene_title)
+ end
+end
+
+function scene_finished:draw()
+ print("game finished",38,62,7)
+end
+
+--------------------------------
+--scene over
+--------------------------------
+
+scene_over={}
+function scene_over:init()
+end
+
+function scene_over:update()
+ if btnp(4) then
+  show(scene_title)
+ end
+end
+
+function scene_over:draw()
+ print("game over",46,62,7)
+end
+
+--------------------------------
+--main
+--------------------------------
+function _init()
+ init_data()
+ show(scene_title)
+end
+
+function _update() 
+ update_scene()
+end
+
+function _draw()
+ cls()
+ draw_scene()
+end
+
+--------------------------------
 --dungeon generation
+--------------------------------
 function c_r(w,h)
  local r={x=0,y=0,dx=0,dy=0,
           w=w,h=h,
@@ -59,6 +774,10 @@ function c_r(w,h)
 	 return r
  end
  return r
+end
+
+function m_level_debug()
+ c_r(3,3).add(c_r(3,3).e("finish"))
 end
 
 function m_level1()
@@ -102,6 +821,8 @@ function d_create()
  elseif level==3 then
   m_level3()
  end
+ --root=nil
+ --m_level_debug()
  
  doffx=0
  doffy=0
@@ -469,650 +1190,6 @@ function debug_rgen(r,id)
  for c in all(r.next) do
   debug_rgen(c,id+1)
  end
-end
-
-function add_e(name,x,y)
- local data=edata[name]
- local e={data=data,
-									 x=x,
-									 y=y,
-									 hp=data.hp,
-									 cnt=0,
-									 frame=0,
-									 acnt=0,
-									 sprite=data.spr_idle,
-									 shadow=data.shadow}
-	add(elist,e)
-	return e
-end
-
-function _init()
- edata={}
-
- --finish data
- edata["finish"]={
-  finish=true,
-  w=8,h=8,
-  spr_idle=78,sw=2,sh=2}
-  
- --door data
- edata["door"]={
-  door=true,
-  w=16,h=16,
-  spr_idle=108,sw=2,sh=2,
-  shadow=26}
-   
- --monster data
- edata["slime"]={
-  monster=true,
-  w=12,h=14,
-  hp=1,
-  bounce=0.8,
-  shake=8,
-  spr_idle=38,sw=2,sh=2,
-  spr_die=128,
-  idleint=15,
-  shadow=8}
-  
- edata["slime_key"]={
-  monster=true,
-  w=12,h=14,
-  hp=1,
-  bounce=0.8,
-  shake=8,
-  loot="key",
-  spr_idle=34,sw=2,sh=2,
-  spr_die=128,
-  idleint=15,
-  shadow=8}
-  
- edata["chest_hp"]={
-  monster=true,
-  w=12,h=14,
-  hp=1,
-  bounce=0,
-  loot="pot_hp",
-  spr_idle=110,sw=2,sh=2,
-  spr_die=164,
-  shadow=24}
-
-	--pickup data
- edata["key"]={
-  pickup=true,
-  w=6,h=8,
-  key=1,gold=0,hp=0,
-  spr_idle=49,sw=1,sh=1}
-
- edata["coin"]={
-  pickup=true, 
-  w=6,h=8,
-  key=0,gold=1,hp=0,
-  spr_idle=33,sw=1,sh=1}
- 
- edata["pot_hp"]={
-  pickup=true, 
-  w=6,h=8,
-  key=0,gold=0,hp=3,
-  spr_idle=48,sw=1,sh=1}
-   
- level=1
- load_level()
-end
-
-function load_level()
- --dungeon
- while not d_create() do end
- camx=bx
- camy=by
- ccamx=camx
- ccamy=camy
- 
- --ball
-	boffx=0
-	boffy=0
-	bvx=0
-	bvy=0
-	bdx=0
-	bdy=0
-	bvpct=0
-	
-	-- player
-	px=bx
-	py=by
-	angle=0
-	str=0
-	dirx=0
-	diry=1
-	key=0
-	gold=0
-	psprite=2
-	pframe=0
-	pacnt=0
-	pteleport=0
-	
-	state=0
-	say("level "..level,30)
-end
-
-function hit(e)
- if e.data.monster then
-  if e.hp==0 then
-   return false
-  end
-  
-  e.hp-=1
-  if e.hp==0 then
-   e.shadow=nil
-   if e.data.loot then	
-	   local ldata=edata[e.data.loot]
-	   key+=ldata.key
- 	  gold+=ldata.gold
- 	  php+=ldata.hp
-	   add_e(e.data.loot,e.x,e.y)
-	  end
-	 end
-	 --bvx+=bdx*(1-bvpct)*e.data.bounce
-	 --bvy+=bdy*(1-bvpct)*e.data.bounce
-	 bvx+=bdx*e.data.bounce
-	 bvy+=bdy*e.data.bounce
-	 if e.data.shake then
-	  shake(bdx,bdy,e.data.shake)
-	 end
-	 sfx(3)
-	 return true
-	elseif e.data.pickup then
-		return false
-	elseif e.data.finish then
-	 say("success",30,function()
-	  if level==level_max then
-	   say("game finished")
-	   state=4 --game finished
-	  else
-	   level+=1
-	   load_level()
-	  end
-	 end)
-	 return true
-	elseif e.data.door then
-	 if key>0 then
-	  key-=1
-	  del(elist,e)
-	  sfx(2)
-	  return false
-	 end
-	 
-	 shake(bdx,bdy,bvpct*10)
-	 sfx(0)
-	 return true
- end
-end
-
-function crect(x1,y1,w1,h1,
-								       x2,y2,w2,h2)
- return not (x1>=x2+w2 or
-             x1+w1<=x2 or
-             y1>=y2+h2 or
-             y1+h1<=y2)
-end
-
-function collide(x,y,w,h)
- for e in all(elist) do
-  if crect(x,y,w,h,
-           e.x-e.data.w/2,e.y-e.data.h,
-           e.data.w,e.data.h) then
- 		if hit(e) then
- 		 return true
- 		end
-  end
- end
- 
-	for ix=flr(x/8),
-	       flr((x+w)/8) do
-	 for iy=flr(y/8),
-	        flr((y+h)/8) do
-   if fget(mmget(ix,iy),1) then
-    --solid
-    if crect(x,y,w,h,
-             ix*8+1,iy*8+1,6,6) then
-     shake(bdx,bdy,bvpct*10)
-     sfx(0)
-     return true
-    end
-   end
-  end
- end
- 
- return false
-end
-
-function movebx()
- boffx+=bvx
- offsetx=flr(boffx)
- if offsetx<0 then
-  offsetx+=1
- end
- boffx-=offsetx
- 
-	if offsetx!=0 then
-	 sign=1
-	 if offsetx<0 then sign=-1 end
-  for i=0,offsetx*sign-1 do
-   if collide(bx+sign+1,by+1,4,4) then
-    boffx=-boffx
-    bvx=-bvx
-    bdx=-bdx
-    return
-			end
-   bx+=sign
-  end
- end
-end
-
-function moveby()
- boffy+=bvy
- offsety=flr(boffy)
- if offsety<0 then
-  offsety+=1
- end
- boffy-=offsety
- 
-	if offsety!=0 then
-	 sign=1
-	 if offsety<0 then
-	  sign=-1
-	 end
-  for i=0,offsety*sign-1 do
-   if collide(bx+1,by+sign+1,4,4) then
-    boffy=-boffy
-    bvy=-bvy
-    bdy=-bdy
-    return
-   end
-   by+=sign
-  end
- end
-end
-
-function dec_php()
- php-=1
- --fixme
- --if php==0 then
- -- say("game over")
- -- state=3 --game over
- --end
-end
-
-function _update()
- if btnp(4) then
-  debug=not debug
- end
- 
- if debug then
-  if btn(0) then debugx-=8
-  elseif btn(1) then debugx+=8
-  end
-  if btn(2) then debugy-=8
-  elseif btn(3) then debugy+=8
-  end
-  return
- end
- 
- if say_cnt then
-  say_cnt-=1
-  if say_cnt==0 then
-   say_text=nil
-   say_cnt=nil
-   if say_cb then
-    say_cb()
-   end
-  end
-  return
- end
- 
- if state==0 then
-  update_idle()
- elseif state==1 then
-  update_charge()
- elseif state==2 then
-  update_moving()
- elseif state==3 then
-  update_game_over()
- else --state==4
-  update_game_finished()
- end
-  
- --update player
- if pteleport>0 then  
-  pteleport-=1
-  pframe=flr(pteleport/pteleport_speed)
-  if pframe<pteleport_frame then
-   px=bx
-   py=by
-  else
-   pframe=(pteleport_frame-1)-(pframe-pteleport_frame)
-  end 
-  psprite=134+pframe*2
- else
-  psprite=2+pframe*2
- end
- 
- --update entities
- for e in all(elist) do
-  if e.data.monster then
-   --update monster
-   if e.hp>0 then
-    if e.data.idleint then
-	    e.acnt+=1
-	    if e.acnt==e.data.idleint then
-	     e.acnt=0
-	     e.frame=(e.frame+1)%2
-	     e.sprite=e.data.spr_idle+
-	              e.frame*e.data.sw
-	    end
-    end
-   else
-    e.cnt+=1
-    e.sprite=e.data.spr_die+flr(e.cnt/mdie_speed)*2
-    if e.cnt==mdie_frame*mdie_speed then
-     del(elist,e)
-    end
-   end
-  elseif e.data.pickup then
-   --update pickup
-   e.cnt+=1
-   if e.cnt<8 then
-    e.y-=3
-   elseif e.cnt==12 then
-    sfx(4)
-   elseif e.cnt==14 then
-    e.sprite=13
-   elseif e.cnt==18 then
-    e.sprite=14
-   elseif e.cnt==20 then
- 	  del(elist,e)
-   end
-  end
- end 
- 
- --update camera
- if ccamx<camx-16 then
-  ccamx=camx-16
- elseif camx<camx then
-  ccamx+=1
- elseif ccamx>camx+16 then
-  ccamx=camx+16
- elseif ccamx>camx then
-  ccamx-=1
- end
- 
- if ccamy<camy-16 then
-  ccamy=camy-16
- elseif ccamy<camy then
-  ccamy+=1
- elseif ccamy>camy+16 then
-  ccamy=camy+16
- elseif ccamy>camy then
-  ccamy-=1
- end
-end
-
-function say(text,cnt,cb)
- say_text=text
- say_cnt=cnt
- say_cb=cb
-end
-
-function update_moving()
- movebx()
- moveby()
- bvx*=friction
- bvy*=friction
- 
- length=sqrt(bvx*bvx+
-             bvy*bvy)
- if length>vmax then
-  length=vmax
-  bvx=bdx*length
-  bvy=bdy*length
- end
- bvpct=length/vmax
- 
- if length<0.05 then
-  bvx=0
-  bvy=0
-  boffx=0
-  boffy=0
-		state=0 --idle
-		pteleport=pteleport_frame*2*pteleport_speed
-		sfx(5)
- end
- 
- if pacnt>0 then
-  pacnt-=1
-  if pacnt==0 then
-   pframe=0
-  end
- end
- 
- camx=flr(bx)
- camy=flr(by)
-end
-
-function update_rotation()
- if btn(0) then --left
-  angle-=angle_delta
-  if angle<0 then angle+=1 end
- elseif btn(1) then --right
-  angle+=angle_delta
-  if angle>1 then angle-=1 end
- end
- 
- dirx=sin(angle)
- diry=cos(angle)
- local tx=flr(bx+dirx*44)
- local ty=flr(by+diry*44)
- if camx<tx then
-  camx+=1
- elseif camx>tx then
-  camx-=1
- end
- 
- if camy<ty then
-  camy+=1
- elseif camy>ty then
-  camy-=1
- end
-end
-
-function update_idle()
- update_rotation() 
- 
- if btnp(5) then -- fire (x)
-  strsign=1
-  state=1 -- charge
-  pframe=1
- end
-end
-  
-function update_charge()
- update_rotation()
- 
- if not btn(5) then
-  state=2 -- moving
-  vel=vmin+str*(vmax-vmin)
-  bdx=dirx
-  bdy=diry
-  bvx=bdx*vel
-  bvy=bdy*vel
-  shake(dirx,diry,str*6)
-  dec_php()
-  str=0
-  pframe=2
-  pacnt=16
-  sfx(1)
- else
-  str+=strsign*strspeed
-  if str>1.0 then
-   str=1
-   strsign=-1
-  elseif str<0.0 then
-   str=0
-   strsign=1
-  end
- end
-end
-
-function update_game_over()
- --todo
- if btnp(4) then
-  run()
- end
-end
-
-function update_game_finished()
- --todo
- if btnp(5) then
-  run()
- end
-end
-
-function _draw()
- cls()
- 
- --screen shake!
- if shakesx>0 then
-  shakesx-=1
-  if shakesx<0 then shakesx=0 end
- end
- shakex=-shakesx+rnd(2)*shakesx
- 
- if shakesy>0 then
-  shakesy-=1
-  if shakesy<0 then shakesy=0 end
- end
- shakey=-shakesy+rnd(2)*shakesy
-  
- if debug then
-  camera(debugx,debugy)  
- else 
-  camera(ccamx-64+shakex,
-         ccamy-64+shakey)
- end
- map(0,0,0,0,64,32)
- map(64,0,0,256,64,32)
- 
- --draw cursor
- if state<=1 then
-  local x=bx+2
-  local y=by+2
-  local length=16+str*24
-  for i=0,4 do
-   circfill(x,y,2,15)
-   x+=dirx*(length/2.5)
-   y+=diry*(length/2.5)
-  end
- end
-     
- --draw entities
- for e in all(elist) do
-  if e.shadow then
-   spr(e.shadow,e.x-8,e.y-2,2,1)
-  end
-  spr(e.sprite,
-      e.x-e.data.sw*4,
-      e.y-e.data.sh*8,
-      e.data.sw,e.data.sh)
-  if debug then
-   local x=e.x-e.data.w/2
-   local y=e.y-e.data.h
-   rect(x,y,x+e.data.w,y+e.data.h,7)
-  end
- end
- 
- if by>py-4 then
-  draw_player()
-  draw_ball()
- else
-  draw_ball()
-  draw_player()
- end
-
- --fixme draw pickups here!
- 
- --draw ui
- camera()
- 
- --rect(0,0,127,127,7)
-	rectfill(0,0,127,9,0)
-	rect(0,0,127,9,7)
-	
- color(7)
- spr(32,3,1)
- print(php,11,2)
- spr(33,20,1)
- print(gold,28,2)
- spr(49,36,1)
- print(key,44,2)
-  
- --draw charge bar
- --if state==1 then
- -- col=8+3-flr(str*4)
- -- rectfill(55,4,119,11,6)
- -- rectfill(55,4,55+str*64,11,
- --          col) 
- --end
- 
- --draw say text 
- if say_text then
-  local w=#say_text*4
-  rectfill(64-w/2-4,59,
-           64+w/2+2,69,0)
-  rect(64-w/2-4,59,
-       64+w/2+2,69,7)
-  print(say_text,64-w/2,62,7)
- end
- 
- --draw debug
- if debug then
-  cursor(0,0)
-  color(14)
-  print("state="..state)
-  print("angle="..angle) 
-  print("str="..str)
-  print("dx="..dirx.." dy="..diry)
-  if dbg then
-   print("dbg="..dbg)
-  end
-  if err then 
-   print("err="..err)
-  end  
-  debug_dgen()
-  --circfill(64+debugx+8,debugy+8,2,7)
- end
-end
-
-function draw_player()
- spr(8,px-5,py,2,1)
- spr(psprite,px-5,py-13,
-     2,2,dirx<0,false)
-end
- 
-function draw_ball()
- spr(10,bx-5,by+4,2,1)
- spr(1,bx,by-flr(bvpct*3))
-end
-
-shakesx=0
-shakesy=0
-shakex=0
-shakey=0
---shakecnt=0
-function shake(dx,dy,str)
- --if str>0.25 then
-  shakesx=abs(dx*str)--dirx*str
-  shakesy=abs(dy*str)--diry*str
-  --shakecnt=flr(str)+1
- --end
 end
 
 function mmget(x,y)
