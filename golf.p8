@@ -47,7 +47,8 @@ function init_data()
   monster=true,
   w=12,h=14,
   hp=1,
-  bounce=0.8,
+  bnc_type=1,
+  bnc_force=0.8,
   shake=8,
   spr_idle=38,sw=2,sh=2,
   spr_die=128,
@@ -58,10 +59,23 @@ function init_data()
   monster=true,
   w=12,h=14,
   hp=1,
-  bounce=0.8,
+  bnc_type=1,
+  bnc_force=0.8,
   shake=8,
   loot="key",
   spr_idle=34,sw=2,sh=2,
+  spr_die=128,
+  idleint=15,
+  shadow=8}
+  
+ edata["beholder"]={
+  monster=true,
+  w=12,h=14,
+  hp=1,
+  bnc_type=2,
+  bnc_force=5.0,
+  shake=8,
+  spr_idle=42,sw=2,sh=2,
   spr_die=128,
   idleint=15,
   shadow=8}
@@ -70,7 +84,8 @@ function init_data()
   monster=true,
   w=12,h=14,
   hp=1,
-  bounce=0,
+  bnc_force=0,
+  bnc_type=1,
   loot="pot_hp",
   spr_idle=110,sw=2,sh=2,
   spr_die=164,
@@ -154,19 +169,10 @@ function draw_scene()
 end
 
 --------------------------------
---scene game
+--ball
 --------------------------------
 
-scene_game={}
-function scene_game:init()
- --dungeon
- while not d_create() do end
- camx=bx
- camy=by
- ccamx=camx
- ccamy=camy
- 
- --ball
+function b_init()
 	boffx=0
 	boffy=0
 	bvx=0
@@ -176,8 +182,167 @@ function scene_game:init()
 	bvpct=0
 	bhitcnt=0
 	bsprite=0
-	
-	-- player
+end
+
+function b_update()
+ b_movex()
+ b_movey()
+ bvx*=friction
+ bvy*=friction
+ 
+ length=sqrt(bvx*bvx+
+             bvy*bvy)
+ if length>vmax then
+  length=vmax
+  bvx=bdx*length
+  bvy=bdy*length
+ end
+ bvpct=length/vmax
+ 
+ if length<0.05 then
+  if php==0 then
+   show(scene_over)
+   return
+  end
+  bvx=0
+  bvy=0
+  boffx=0
+  boffy=0
+	 p_teleport()	
+	end
+end
+
+function b_draw()
+ local y=by-flr(bvpct*3)
+ if bsprite==0 then
+  spr(10,bx-5,by+4,2,1)
+  spr(1,bx,y)
+ elseif bsprite==1 then
+  spr(16,bx,y)
+ elseif bsprite==2 then
+  spr(17,bx,y)
+ end
+ 
+ if bhitcnt>0 then
+  circ(bhitx,bhity,3+2-bhitcnt)
+  bhitcnt-=1
+ end
+end
+
+function crect(x1,y1,w1,h1,
+								       x2,y2,w2,h2)
+ return not (x1>=x2+w2 or
+             x1+w1<=x2 or
+             y1>=y2+h2 or
+             y1+h1<=y2)
+end
+
+function collide(x,y,w,h)
+ for e in all(elist) do
+  if crect(x,y,w,h,
+           e.x-e.data.w/2,e.y-e.data.h,
+           e.data.w,e.data.h) then
+ 		local b=scene_game:hit(e)
+ 		if b>0 then
+ 		 return b
+ 		end
+  end
+ end
+ 
+	for ix=flr(x/8),
+	       flr((x+w)/8) do
+	 for iy=flr(y/8),
+	        flr((y+h)/8) do
+   if fget(mmget(ix,iy),1) then
+    --solid
+    if crect(x,y,w,h,
+             ix*8+1,iy*8+1,6,6) then
+     shake(bdx,bdy,bvpct*10)
+     if bvpct>0.05 then
+      bhitcnt=2
+      bhitx=bx+2
+      bhity=by+2
+     end
+     sfx(0)
+     return 1
+    end
+   end
+  end
+ end
+ 
+ return 0
+end
+
+function b_movex()
+ boffx+=bvx
+ offsetx=flr(boffx)
+ if offsetx<0 then
+  offsetx+=1
+ end
+ boffx-=offsetx
+ 
+	if offsetx!=0 then
+	 sign=1
+	 if offsetx<0 then sign=-1 end
+  for i=0,offsetx*sign-1 do
+   local b=collide(bx+sign+1,by+1,4,4)
+   if b==1 then
+    boffx=-boffx
+    bvx=-bvx
+    bdx=-bdx
+    return
+			elseif b==2 then
+			 brevert()
+			 return
+			end
+   bx+=sign
+  end
+ end
+end
+
+function b_movey()
+ boffy+=bvy
+ offsety=flr(boffy)
+ if offsety<0 then
+  offsety+=1
+ end
+ boffy-=offsety
+ 
+	if offsety!=0 then
+	 sign=1
+	 if offsety<0 then
+	  sign=-1
+	 end
+  for i=0,offsety*sign-1 do
+   local b=collide(bx+1,by+sign+1,4,4)
+   if b==1 then 
+    boffy=-boffy
+    bvy=-bvy
+    bdy=-bdy
+    return
+   elseif b==2 then
+    brevert()
+    return
+   end
+   by+=sign
+  end
+ end
+end
+
+function brevert()
+ boffx=-boffx
+ bvx=-bvx
+ bdx=-bdx
+ boffy=-boffy
+ bvy=-bvy
+ bdy=-bdy
+end
+
+--------------------------------
+--player
+--------------------------------
+
+function p_init()
 	px=bx
 	py=by
 	angle=0
@@ -190,6 +355,35 @@ function scene_game:init()
 	pframe=0
 	pacnt=0
 	pteleport=0
+end
+
+function p_teleport()
+ scene_game.state=0 --idle
+	pteleport=pteleport_frame*2*pteleport_speed
+	sfx(5)
+end
+
+function p_draw()
+ spr(8,px-5,py,2,1)
+ spr(psprite,px-5,py-13,
+     2,2,dirx<0,false)
+end
+
+--------------------------------
+--scene game
+--------------------------------
+
+scene_game={}
+function scene_game:init()
+ --dungeon
+ while not d_create() do end
+ camx=bx
+ camy=by
+ ccamx=camx
+ ccamy=camy
+ 
+ b_init()
+	p_init()
 	
 	self.state=0
 end
@@ -295,33 +489,7 @@ function scene_game:update()
 end
 
 function scene_game:upd_moving()
- movebx()
- moveby()
- bvx*=friction
- bvy*=friction
- 
- length=sqrt(bvx*bvx+
-             bvy*bvy)
- if length>vmax then
-  length=vmax
-  bvx=bdx*length
-  bvy=bdy*length
- end
- bvpct=length/vmax
- 
- if length<0.05 then
-  if php==0 then
-   show(scene_over)
-   return
-  end
-  bvx=0
-  bvy=0
-  boffx=0
-  boffy=0
-		self.state=0 --idle
-		pteleport=pteleport_frame*2*pteleport_speed
-		sfx(5)
- end
+ b_update()
  
  if pacnt>0 then
   pacnt-=1
@@ -486,17 +654,13 @@ function scene_game:draw()
  end
  
  if by>py-4 then
-  draw_player()
-  draw_ball()
+  p_draw()
+  b_draw()
  else
-  draw_ball()
-  draw_player()
+  b_draw()
+  p_draw()
  end
 
- if bhitcnt>0 then
-  circ(bhitx,bhity,3+2-bhitcnt)
-  bhitcnt-=1
- end
  --fixme draw pickups here!
  
  --draw ui
@@ -542,7 +706,7 @@ end
 function scene_game:hit(e)
  if e.data.monster then
   if e.hp==0 then
-   return false
+   return 0
   end
   
   e.hp-=1
@@ -556,32 +720,33 @@ function scene_game:hit(e)
 	   add_e(e.data.loot,e.x,e.y)
 	  end
 	 end
-	 bvx+=bdx*e.data.bounce
-	 bvy+=bdy*e.data.bounce
+	 bvx+=bdx*e.data.bnc_force
+	 bvy+=bdy*e.data.bnc_force
 	 if e.data.shake then
 	  shake(bdx,bdy,e.data.shake)
 	 end
 	 sfx(3)
-	 return true
+	 return e.data.bnc_type
 	elseif e.data.pickup then
-		return false
+		return 0
 	elseif e.data.finish then
 	 bfx=e.x-3
 	 bfy=e.y-7
 	 bfcnt=30
 	 self.state=3
-	 return false
+	 sfx(6)
+	 return 0
 	elseif e.data.door then
 	 if key>0 then
 	  key-=1
 	  del(elist,e)
 	  sfx(2)
-	  return false
+	  return 0
 	 end
 	 
 	 shake(bdx,bdy,bvpct*10)
 	 sfx(0)
-	 return true
+	 return 1
  end
 end
 
@@ -598,115 +763,6 @@ function add_e(name,x,y)
 									 shadow=data.shadow}
 	add(elist,e)
 	return e
-end
-
-function draw_player()
- spr(8,px-5,py,2,1)
- spr(psprite,px-5,py-13,
-     2,2,dirx<0,false)
-end
- 
-function draw_ball()
- local y=by-flr(bvpct*3)
- if bsprite==0 then
-  spr(10,bx-5,by+4,2,1)
-  spr(1,bx,y)
- elseif bsprite==1 then
-  spr(16,bx,y)
- elseif bsprite==2 then
-  spr(17,bx,y)
- end
-end
-
-function crect(x1,y1,w1,h1,
-								       x2,y2,w2,h2)
- return not (x1>=x2+w2 or
-             x1+w1<=x2 or
-             y1>=y2+h2 or
-             y1+h1<=y2)
-end
-
-function collide(x,y,w,h)
- for e in all(elist) do
-  if crect(x,y,w,h,
-           e.x-e.data.w/2,e.y-e.data.h,
-           e.data.w,e.data.h) then
- 		if scene_game:hit(e) then
- 		 return true
- 		end
-  end
- end
- 
-	for ix=flr(x/8),
-	       flr((x+w)/8) do
-	 for iy=flr(y/8),
-	        flr((y+h)/8) do
-   if fget(mmget(ix,iy),1) then
-    --solid
-    if crect(x,y,w,h,
-             ix*8+1,iy*8+1,6,6) then
-     shake(bdx,bdy,bvpct*10)
-     if bvpct>0.05 then
-      bhitcnt=2
-      bhitx=bx+2
-      bhity=by+2
-     end
-     sfx(0)
-     return true
-    end
-   end
-  end
- end
- 
- return false
-end
-
-function movebx()
- boffx+=bvx
- offsetx=flr(boffx)
- if offsetx<0 then
-  offsetx+=1
- end
- boffx-=offsetx
- 
-	if offsetx!=0 then
-	 sign=1
-	 if offsetx<0 then sign=-1 end
-  for i=0,offsetx*sign-1 do
-   if collide(bx+sign+1,by+1,4,4) then
-    boffx=-boffx
-    bvx=-bvx
-    bdx=-bdx
-    return
-			end
-   bx+=sign
-  end
- end
-end
-
-function moveby()
- boffy+=bvy
- offsety=flr(boffy)
- if offsety<0 then
-  offsety+=1
- end
- boffy-=offsety
- 
-	if offsety!=0 then
-	 sign=1
-	 if offsety<0 then
-	  sign=-1
-	 end
-  for i=0,offsety*sign-1 do
-   if collide(bx+1,by+sign+1,4,4) then
-    boffy=-boffy
-    bvy=-bvy
-    bdy=-bdy
-    return
-   end
-   by+=sign
-  end
- end
 end
 
 --------------------------------
@@ -783,7 +839,10 @@ end
 --------------------------------
 function _init()
  init_data()
- show(scene_title)
+ --show(scene_title)
+ level=1
+ php=player_hp
+ show(scene_game)
 end
 
 function _update() 
@@ -834,7 +893,7 @@ end
 
 function m_level1()
  c_r(3,3).add(
-  c_r(5,3).e("slime",2).add(
+  c_r(5,3).e("beholder",2).add(
    c_r(4,3).e("chest_hp").e("finish")
   )
  )
@@ -873,8 +932,8 @@ function d_create()
  elseif level==3 then
   m_level3()
  end
- root=nil
- m_level_debug()
+ --root=nil
+ --m_level_debug()
  
  doffx=0
  doffy=0
@@ -1297,8 +1356,8 @@ __gfx__
 02888820000990000028888888888200028888822288882000288888888882000288888888888820000100000000100000001128821100000000000000000000
 002222000009990000288888888e8200028888888888e82000288888888e8200028888888888e820000010100101000000000111111000000000000000000000
 00000000000000000002888888882000002888888888820000028888888820000028888888888200000001288210000000000000000000000000000000000000
-533333333333335b533333333333335000555550005555000055555000555500bb55555bbb5555bb0bb555bbbb5555bbbbbbbbbbbbbbbbbb0000000fe8000000
-535533333333555b535533333333555005333335053333500533333505333350b5333335b533335b0b53335bb533335bbbbbbbbbbbbbbbbb0000000fe8800000
+533333333333335b533333333333335000555550005555000055555000555500bb55555bbb5555bbbbb555bbbb5555bbbbbbbbbbbbbbbbbb0000000fe8000000
+535533333333555b535533333333555005333335053333500533333505333350b5333335b533335bbb53335bb533335bbbbbbbbbbbbbbbbb0000000fe8800000
 533353333335333553335333333533355333333353333335533333335333333553333333533333355333333353333335bbbbbbbbbbbbbbbb0000000fe8880000
 533333355533333553333335553333355333333333333333333333333333333553333333333333333333333333333335bbbbbbbbbb33bbbb0000000fe8880000
 533333533353333553333353335333355333333555533333333333355553333553333335555333333333333555533335bbbbbbbbb3bb3bbb0000000fe8800000
@@ -1437,7 +1496,7 @@ __sfx__
 000200002a330233501e300147201775016300113300e330076001920015200122000e2000c2000a2000920008200052000420001200012000120001200012000000000000000000000000000000000000000000
 000100002b7202f0402f0402f0402f0203b400347203804038040380403803038020380102e0002000020000220002000022000230002400026000280002a0002c0002e000310003400036000390003c0003e000
 000200002851024330215401e520161000a5400b5302a000240001d5301f5402355028550000000000000000000000000013000160001c0001f0002200025000280002a0002c0002b00028000240001d00019000
-000400000440005400064000740008400084000840007400064000540004400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000200002f050300503105031050300502f0502e050074000640005400210501e0501e0501d0501e050200502105000000000001700016050190501905018050150500d0001200010000110500f0501005012050
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
